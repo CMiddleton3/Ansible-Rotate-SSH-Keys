@@ -1,0 +1,39 @@
+---
+- name: Rotate SSH Key
+  hosts: all
+  gather_facts: false
+  vars:
+    ssh_key: "~/.ssh/new_key"
+    ssh_user: "root"
+    ssh_config: "/etc/ssh/sshd_config"
+  tasks:
+  - name: Generate new SSH key
+    shell: "ssh-keygen -t rsa -b 4096 -f {{ ssh_key }} -q -N ''"
+    args:
+      creates: "{{ ssh_key }}"
+  - name: Copy old key to server
+    authorized_key:
+      user: "{{ ssh_user }}"
+      key: "{{ lookup('file', ssh_key + '.pub') }}"
+  - name: Test new key
+    shell: "ssh -i {{ ssh_key }} {{ ssh_user }}@{{ ansible_host }} 'echo success'"
+    register: test_new_key
+  - name: Fail if new key test fails
+    fail:
+      msg: "Failed to connect to server with new key"
+    when: test_new_key.rc != 0
+  - name: Archive old key
+    shell: "mv {{ ssh_key }}.pub {{ ssh_key }}.pub.old"
+  - name: Add new key to ansible host file
+    lineinfile:
+      dest: "{{ ansible_host_file }}"
+      line: "{{ ansible_host }} ansible_ssh_private_key={{ ssh_key }}"
+  - name: Change the permission of the new key
+    file:
+      path: "{{ ssh_key }}"
+      mode: 600
+  - name: Update ssh config file
+    lineinfile:
+      dest: "{{ ssh_config }}"
+      line: "PasswordAuthentication no"
+      state: present
